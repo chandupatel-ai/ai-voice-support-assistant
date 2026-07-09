@@ -2,12 +2,13 @@
 AI Voice Support Assistant - Backend
 =====================================
 Real-time voice support pipeline:
-  1. Real-time transcription (Groq Whisper large-v3)
+  1. Real-time transcription (Groq Whisper large-v3-turbo)
   2. Agent response suggestions (Groq Llama 3.3 70B)
   3. Customer sentiment detection (Groq Llama 3.3 70B)
   4. Post-call summary + action items (Groq Llama 3.3 70B)
 
-Stack: FastAPI, WebSockets (for real-time audio streaming), Groq API.
+Stack: FastAPI, WebSockets, Groq API.
+Pydantic v1 compatible.
 """
 
 import os
@@ -15,7 +16,7 @@ import json
 import time
 import uuid
 import tempfile
-from typing import Optional
+from typing import List, Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,18 +37,18 @@ app = FastAPI(title="AI Voice Support Assistant")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production to your deployed frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory call store (swap for Redis/Postgres in production)
-CALLS: dict[str, dict] = {}
+# In-memory call store
+CALLS: Dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
-# Models
+# Models (pydantic v1 compatible)
 # ---------------------------------------------------------------------------
 
 class SummaryRequest(BaseModel):
@@ -65,24 +66,28 @@ class SentimentResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 def transcribe_audio_bytes(audio_bytes: bytes, filename: str = "chunk.wav") -> str:
-    """Send raw audio bytes to Groq Whisper for transcription."""
     if not client:
         raise RuntimeError("GROQ_API_KEY not configured on server")
 
-    with tempfile.NamedTemporaryFile(suffix=os.path.splitext(filename)[1] or ".wav") as tmp:
+    suffix = os.path.splitext(filename)[1] or ".wav"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(audio_bytes)
-        tmp.flush()
-        with open(tmp.name, "rb") as f:
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as f:
             result = client.audio.transcriptions.create(
                 file=(filename, f.read()),
                 model=TRANSCRIBE_MODEL,
                 response_format="text",
             )
+    finally:
+        os.unlink(tmp_path)
+
     return str(result).strip()
 
 
 def analyze_sentiment(transcript: str) -> SentimentResult:
-    """Classify customer sentiment from the running transcript."""
     if not transcript.strip():
         return SentimentResult(label="neutral", score=0.5, reason="No speech yet")
 
@@ -108,8 +113,7 @@ Transcript:
         return SentimentResult(label="neutral", score=0.5, reason="parse_error")
 
 
-def suggest_agent_response(transcript: str) -> list[str]:
-    """Generate 2-3 suggested next responses for the human agent."""
+def suggest_agent_response(transcript: str) -> List[str]:
     if not transcript.strip():
         return []
 
@@ -135,7 +139,6 @@ Transcript:
 
 
 def generate_summary(transcript: str) -> dict:
-    """Generate a post-call summary with action items."""
     prompt = f"""Summarize this customer support call transcript. Respond ONLY with JSON:
 {{
   "summary": "2-3 sentence summary",
@@ -193,7 +196,7 @@ async def transcribe_chunk(call_id: str, file: UploadFile = File(...)):
     return {
         "text": text,
         "transcript": transcript,
-        "sentiment": sentiment.model_dump(),
+        "sentiment": sentiment.dict(),
         "suggestions": suggestions,
     }
 
@@ -212,12 +215,6 @@ def call_summary(call_id: str):
 
 @app.websocket("/ws/{call_id}")
 async def call_stream(websocket: WebSocket, call_id: str):
-    """
-    Client streams binary audio chunks (e.g. WebM/Opus blobs from MediaRecorder).
-    Server transcribes each chunk, runs sentiment + suggestion, and pushes
-    a JSON event back after every chunk. On a `{"type": "end"}` text message,
-    server generates and returns the final call summary.
-    """
     await websocket.accept()
     CALLS.setdefault(call_id, {"transcript": "", "started_at": time.time(), "turns": []})
 
@@ -237,7 +234,7 @@ async def call_stream(websocket: WebSocket, call_id: str):
                     "type": "update",
                     "text": text,
                     "transcript": transcript,
-                    "sentiment": sentiment.model_dump(),
+                    "sentiment": sentiment.dict(),
                     "suggestions": suggestions,
                 })
 
