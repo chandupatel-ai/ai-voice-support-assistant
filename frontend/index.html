@@ -158,7 +158,7 @@ async function startCall() {
         e.data.arrayBuffer().then(b => ws.send(b));
       }
     };
-    mediaRecorder.start(300000);
+    mediaRecorder.start(4000);
     setStatus('Connected - listening', true);
     $('endBtn').disabled = false;
 
