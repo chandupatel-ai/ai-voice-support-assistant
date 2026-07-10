@@ -5,10 +5,7 @@
 <title>AI Voice Support Assistant</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
-  :root {
-    --bg: #0b0c10; --panel: #14161c; --border: #2a2d37;
-    --accent: #7c5cff; --green: #34d399; --yellow: #fbbf24; --red: #f87171; --text: #e5e7eb; --muted: #9ca3af;
-  }
+  :root { --bg: #0b0c10; --panel: #14161c; --border: #2a2d37; --accent: #7c5cff; --green: #34d399; --red: #f87171; --text: #e5e7eb; --muted: #9ca3af; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
   header { padding: 20px 28px; border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
@@ -17,74 +14,69 @@
   .layout { display:grid; grid-template-columns: 1.4fr 1fr; gap: 18px; padding: 24px; max-width:1200px; margin:0 auto; }
   .panel { background: var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; }
   .panel h2 { margin:0 0 12px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
-  #transcript { height: 340px; overflow-y:auto; font-size:14px; line-height:1.6; }
+  #transcript { height: 300px; overflow-y:auto; font-size:14px; line-height:1.6; }
   #transcript .line { padding:6px 0; border-bottom:1px dashed var(--border); }
-  .controls { display:flex; gap:10px; margin-top:14px; }
+  .controls { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
   button { background: var(--accent); border:none; color:white; padding:10px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; }
   button.secondary { background: transparent; border:1px solid var(--border); color: var(--text); }
+  button.danger { background: #dc2626; }
   button:disabled { opacity:.4; cursor:not-allowed; }
   .badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:13px; font-weight:600; }
   .badge.positive { background: rgba(52,211,153,.15); color: var(--green); }
   .badge.neutral { background: rgba(156,163,175,.15); color: var(--muted); }
   .badge.negative, .badge.frustrated, .badge.angry { background: rgba(248,113,113,.15); color: var(--red); }
-  .suggestion { background:#1c1f29; border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:14px; cursor:pointer; }
-  .suggestion:hover { border-color: var(--accent); }
-  #status { font-size:13px; color: var(--muted); margin-top:6px; }
+  .suggestion { background:#1c1f29; border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:14px; }
+  #status { font-size:13px; color: var(--muted); }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:6px; }
   .dot.live { background: var(--red); animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%{opacity:1;} 50%{opacity:.3;} 100%{opacity:1;} }
-  #summaryBox { font-size:14px; line-height:1.6; white-space:pre-wrap; }
-  input { width:100%; background:#1c1f29; border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-size:13px; margin-bottom:10px; }
-  label { font-size:12px; color:var(--muted); }
+  #summaryBox { font-size:14px; line-height:1.7; white-space:pre-wrap; }
+  #transcriptFull { font-size:12px; color:var(--muted); margin-top:8px; font-style:italic; }
 </style>
 </head>
 <body>
-
 <header>
   <h1>AI Voice <span>Support</span> Assistant</h1>
   <div id="status"><span class="dot"></span>Idle</div>
 </header>
-
 <div class="layout">
   <div class="panel">
     <h2>Live Transcript</h2>
-    <div id="transcript"><div class="line" style="color:var(--muted)">Transcript will appear here once the call starts…</div></div>
+    <div id="transcript"><div class="line" style="color:var(--muted)">Transcript will appear here once the call starts...</div></div>
+    <div id="transcriptFull"></div>
     <div class="controls">
       <button id="startBtn">Start Call</button>
-      <button id="endBtn" class="secondary" disabled>End Call</button>
+      <button id="endBtn" class="secondary" disabled>End Call & Get Summary</button>
     </div>
-    <label>Backend WebSocket URL</label>
-    <input id="wsUrl" placeholder="wss://your-backend.onrender.com" />
   </div>
-
   <div style="display:flex; flex-direction:column; gap:18px;">
     <div class="panel">
       <h2>Customer Sentiment</h2>
       <span id="sentimentBadge" class="badge neutral">Neutral</span>
       <p id="sentimentReason" style="color:var(--muted); font-size:13px; margin-top:10px;">No data yet.</p>
     </div>
-
     <div class="panel">
       <h2>Suggested Agent Responses</h2>
-      <div id="suggestions" style="color:var(--muted); font-size:13px;">Waiting for conversation…</div>
+      <div id="suggestions" style="color:var(--muted); font-size:13px;">Waiting for conversation...</div>
     </div>
-
     <div class="panel">
       <h2>Post-Call Summary</h2>
-      <div id="summaryBox" style="color:var(--muted);">Summary is generated when the call ends.</div>
+      <div id="summaryBox" style="color:var(--muted);">Summary will appear after you click "End Call & Get Summary".</div>
     </div>
   </div>
 </div>
-
 <script>
-let ws, mediaRecorder, stream, callId;
+const BACKEND = "https://ai-voice-support-assistant-1dad.onrender.com";
+const BACKEND_WSS = "wss://ai-voice-support-assistant-1dad.onrender.com";
+let ws, mediaRecorder, stream, callId, fullTranscript = '';
+
 const $ = (id) => document.getElementById(id);
 
-function setStatus(text, live=false) {
-  $('status').innerHTML = `<span class="dot ${live ? 'live' : ''}"></span>${text}`;
+function setStatus(text, live) {
+  $('status').innerHTML = '<span class="dot ' + (live?'live':'') + '"></span>' + text;
 }
 
-function addTranscriptLine(text) {
+function addLine(text) {
   if (!text) return;
   const box = $('transcript');
   if (box.children.length === 1 && box.children[0].style.color) box.innerHTML = '';
@@ -93,78 +85,103 @@ function addTranscriptLine(text) {
   line.textContent = text;
   box.appendChild(line);
   box.scrollTop = box.scrollHeight;
+  fullTranscript += ' ' + text;
+  $('transcriptFull').textContent = 'Full transcript: ' + fullTranscript.trim();
 }
 
 function updateSentiment(s) {
-  const badge = $('sentimentBadge');
-  badge.className = 'badge ' + (s.label || 'neutral').toLowerCase();
-  badge.textContent = (s.label || 'neutral').toUpperCase() + '  ' + Math.round((s.score||0)*100) + '%';
+  const b = $('sentimentBadge');
+  b.className = 'badge ' + (s.label||'neutral').toLowerCase();
+  b.textContent = (s.label||'neutral').toUpperCase() + ' ' + Math.round((s.score||0)*100) + '%';
   $('sentimentReason').textContent = s.reason || '';
 }
 
 function updateSuggestions(list) {
   const box = $('suggestions');
   box.innerHTML = '';
-  if (!list || !list.length) { box.textContent = 'No suggestions yet.'; return; }
-  list.forEach(s => {
-    const div = document.createElement('div');
-    div.className = 'suggestion';
-    div.textContent = s;
-    box.appendChild(div);
-  });
+  if (!list||!list.length) { box.textContent = 'No suggestions yet.'; return; }
+  list.forEach(s => { const d = document.createElement('div'); d.className = 'suggestion'; d.textContent = s; box.appendChild(d); });
+}
+
+async function getSummary() {
+  $('summaryBox').style.color = 'var(--muted)';
+  $('summaryBox').textContent = 'Generating summary...';
+  try {
+    const resp = await fetch(BACKEND + '/calls/' + callId + '/summary', { method: 'POST' });
+    const data = await resp.json();
+    $('summaryBox').style.color = 'var(--text)';
+    $('summaryBox').textContent =
+      'Summary: ' + data.summary +
+      '\n\nIssue: ' + data.issue +
+      '\n\nResolution: ' + data.resolution +
+      '\n\nAction items:\n- ' + (data.action_items||[]).join('\n- ') +
+      '\n\nOverall Sentiment: ' + data.overall_sentiment;
+  } catch(e) {
+    $('summaryBox').textContent = 'Error generating summary. Try again.';
+  }
 }
 
 async function startCall() {
-  const base = $('wsUrl').value.trim();
-  if (!base) { alert('Enter your backend WebSocket URL (see README for deployment).'); return; }
-
-  callId = crypto.randomUUID();
-  ws = new WebSocket(`${base.replace(/\/$/, '')}/ws/${callId}`);
-
-  ws.onopen = () => setStatus('Connected — listening', true);
-  ws.onclose = () => setStatus('Disconnected');
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'update') {
-      addTranscriptLine(msg.text);
-      updateSentiment(msg.sentiment);
-      updateSuggestions(msg.suggestions);
-    } else if (msg.type === 'summary') {
-      const d = msg.data;
-      $('summaryBox').style.color = 'var(--text)';
-      $('summaryBox').textContent =
-        `Summary: ${d.summary}\n\nIssue: ${d.issue}\n\nResolution: ${d.resolution}\n\nAction items:\n- ${(d.action_items||[]).join('\n- ')}`;
-    }
-  };
-
-  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-      e.data.arrayBuffer().then(buf => ws.send(buf));
-    }
-  };
-  mediaRecorder.start(4000); // send a chunk every 4 seconds -> near-real-time
-
   $('startBtn').disabled = true;
-  $('endBtn').disabled = false;
+  fullTranscript = '';
+  $('transcriptFull').textContent = '';
+  setStatus('Waking up server... please wait');
+
+  try {
+    // Start a call via REST to get call_id
+    const startResp = await fetch(BACKEND + '/calls/start', { method: 'POST' });
+    const startData = await startResp.json();
+    callId = startData.call_id;
+
+    // Connect WebSocket
+    ws = new WebSocket(BACKEND_WSS + '/ws/' + callId);
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject('timeout'), 20000);
+      ws.onopen = () => { clearTimeout(t); resolve(); };
+      ws.onerror = () => { clearTimeout(t); reject('error'); };
+    });
+
+    ws.onclose = () => setStatus('Disconnected — click End Call to get summary');
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'update') {
+        addLine(msg.text);
+        updateSentiment(msg.sentiment);
+        updateSuggestions(msg.suggestions);
+      }
+    };
+
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0 && ws && ws.readyState === 1) {
+        e.data.arrayBuffer().then(b => ws.send(b));
+      }
+    };
+    mediaRecorder.start(4000);
+    setStatus('Connected - listening', true);
+    $('endBtn').disabled = false;
+
+  } catch(e) {
+    setStatus('Connection failed. Try again.');
+    $('startBtn').disabled = false;
+  }
 }
 
-function endCall() {
+async function endCall() {
+  $('endBtn').disabled = true;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
   if (stream) stream.getTracks().forEach(t => t.stop());
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'end' }));
-    setTimeout(() => ws.close(), 1500);
-  }
-  setStatus('Call ended');
+  if (ws) ws.close();
+  setStatus('Call ended - generating summary...');
+  // Use REST API for summary - much more reliable than WebSocket
+  await getSummary();
+  setStatus('Done');
   $('startBtn').disabled = false;
-  $('endBtn').disabled = true;
 }
 
 $('startBtn').addEventListener('click', startCall);
 $('endBtn').addEventListener('click', endCall);
 </script>
-
 </body>
 </html>
